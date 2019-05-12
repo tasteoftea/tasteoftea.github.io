@@ -1,0 +1,93 @@
+---
+title: "Assignment"
+author: "JUNGSOK LEE"
+date: "2019년 5월 10일"
+output: html_document
+---
+**loading training data**
+loading training data from web.
+```{r echo=FALSE}
+set.seed(777)
+Sys.setlocale('LC_ALL','English')
+inputdata <- read.csv("pml-training.csv", na.strings=c("NA",""))
+```
+
+**tidying input data**
+ remove columns that include too many NA values(more than 50% of total samples) and useless columns.
+```{r}
+tooManyNAs = function(column) {
+  sum(is.na(column))>=(length(column)/2)
+}
+NAcol<- apply(inputdata, 2, tooManyNAs)
+NAcolremoved <- inputdata[,!NAcol]
+uselesscol <- grep("X|timestamp|user_name|new_window", names(NAcolremoved))
+uselesscolremoved <- NAcolremoved[,-uselesscol]
+uselesscolremoved <- as.data.frame(uselesscolremoved)
+```
+at each column, Replace NA with the average of that column.
+```{r}
+substituteNAs = function(column) {
+  column[is.na(column)]<-mean(column[!is.na(column)])
+  column
+}
+tidyinput <- apply(uselesscolremoved[,-c(54)],2,substituteNAs)
+tidyinput <- as.data.frame(tidyinput)
+tidyinput <- cbind(tidyinput, uselesscolremoved$classe)
+names(tidyinput)[54] <- c("classe")
+```
+then, I divided tidyinput and make training and testing dataset.
+```{r}
+library(caret)
+inTrain = createDataPartition(y=tidyinput$classe, p =0.7, list=FALSE)
+training <- tidyinput[inTrain, ]
+testing <- tidyinput[-inTrain, ]
+```
+**Build prediction models**
+
+Initially I used rpart to create a prediction model, but the prediction accuracy was too low to recreate the prediction model using arbitrary forests.
+```{r}
+modelfitrpart <- train(classe~.,data=training,method="rpart")
+predict <- predict(object = modelfitrpart, newdata=training)
+print(modelfitrpart)
+```
+
+Using a random forest model, I was able to create a model with very good accuracy and the accuracy was about 100%.
+```{r cache=TRUE}
+modelfit <- train(classe~.,data=training,method="rf")
+predict <- predict(object = modelfit, newdata=training)
+print(modelfit)
+
+```
+
+```{r}
+confusionMatrix(predict, training$classe)
+```
+**Cross-validation**
+
+I performed 5-fold cross validation to measure out of sample errors. 
+```{r cache=TRUE}
+k.folds = function(k) {
+  accuracies.dt = c()
+  folds <- createFolds(training$classe, k = k, list=TRUE, returnTrain = TRUE)
+  for (i in 1:k) {
+    model <- train(classe~., data=training[folds[[i]],], method="rf")
+    predictions <- predict(object = model, newdata = training[-folds[[i]],])
+    accuracies.dt <- c(accuracies.dt, confusionMatrix(predictions, training[-folds[[i]],]$classe)$overall[[1]])
+  }
+  accuracies.dt
+}
+
+accuracies.dt <- k.folds(5)
+mean(accuracies.dt)
+```
+
+mean value of 5 cross validation accuracy is 99.6561% which is less than in sample accuracy of 100%.
+
+**Prediction with test dataset**
+Using testing data, I calculated prediction accuracy which is 99.7791%
+```{r}
+predvalue <- predict(modelfit, testing)
+confusionMatrix(testing$classe, predvalue)$overall[[1]]
+```
+
+
